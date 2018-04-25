@@ -9,10 +9,10 @@
   ; mov ds, ax                ; 将数据段的地址置为代码段的地址，可省，用不到
   mov es, ax                  ; 将附加段的地址置为代码段的地址，因为下面的13号
                               ; 中断要用es:bp来取得字符串位置
-  call DispStr                ; 调用显示字符串例程
+  call disp_str               ; 调用显示字符串例程
   jmp $                       ; 无限循环，$表示当前行编译后的地址
-DispStr:
-  mov ax, BootMessage         ; 将字符串首地址传给寄存器ax
+disp_str:
+  mov ax, boot_msg            ; 将字符串首地址传给寄存器ax
   mov bp, ax                  ; CPU将用ES:BP来寻址字符串
   mov cx, 16                  ; 通过CX，CPU知道字符串的长度
   mov ax, 01301h              ; AH=13表示13号中断，AL=01H，表示目标字符串仅仅包
@@ -21,7 +21,7 @@ DispStr:
   mov dl, 0                   ; dh表示在第几行显示，dl表示第几列显示
   int 10h                     ; BIOS的10H中断的13号中断用于显示字符串
   ret
-BootMessage:
+boot_msg:
   db "Hello, OS world!"       ; 对NASM来讲，标号和变量的作用一样，db=define byte
   times 510-($-$$) db 0       ; 填充剩下空间，使生成的二进制恰好为512字节
                               ; $表示当前行被汇编后的地址，$$表示一个section开始
