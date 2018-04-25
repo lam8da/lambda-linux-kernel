@@ -28,4 +28,4 @@ run() {
 }
 
 # Type 'continue' or 'c' to start the virtual machine.
-run boot-hello-world.asm
+run hello-world-boot.asm
