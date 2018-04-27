@@ -29,18 +29,6 @@ struct Descriptor {
 
 /*
   int offset = (hig_dw & 0xFFFF0000) | (low_dw & 0x0000FFFF);
-  // P和DPL是每个段描述符都有的
-  printf("P = %d\n", ph->p);
-  printf("DPL = %d\n", ph->dpl);
-
-  // 输出所有信息
-  printf("Base: %#x\n", seg_base);
-  printf("Limit: %#x\n", seg_limit);
-  printf("Type: %#x\n", ph->type);
-  printf("S: %d\n", ph->s);
-  printf("D/B: %d\n", ph->d_b);
-  printf("G: %d\n", ph->g);
-
   if (system == 0) {  // 系统段
     printf("系统段描述符\n");
     if (type == 9 || type == 11 || type == 2) {
@@ -74,20 +62,6 @@ struct Descriptor {
     } else if (type == 2) {
       printf("LDT描述符\n");
     }
-  } else {  // 代码或数据段
-    if (type & 0x08) {  // 代码段，分析C，R，D
-      printf("代码段，");
-      if (ph->d_b == 1) {  // D=1
-        printf("默认操作数大小为32位\n");
-      } else {
-        printf("默认操作数大小为16位\n");
-      }
-      if (type & 0x04) {  // C=1
-        printf("一致性，");
-      } else {
-        printf("非一致性，");
-      }
-    }
   }
 */
 
@@ -96,8 +70,45 @@ unsigned int SegmentBase(Descriptor d) {
           d.l_dw.base_0_15);
 }
 
+// The processor puts together the two segment limit fields to form a 20-bit
+// value. The processor interprets the segment limit in one of two ways,
+// depending on the setting of the G (granularity) flag:
+//
+// - If the granularity flag is clear, the actual segment limit can range from 1
+//   byte to 1 MByte, in byte increments. Note: 
+//
+//   segment limit 0      <=> actual segment limit 0
+//   segment limit 1      <=> actual segment limit 1
+//   ...
+//   segment limit 2^20-1 <=> actual segment limit 1048975
+//
+// - If the granularity flag is set, the actual segment limit can range from 4
+//   KBytes to 4 GBytes, in 4-KByte increments. Note:
+//
+//   segment limit 0      <=> actual segment limit 4KB-1
+//   segment limit 1      <=> actual segment limit 8KB-1
+//   ...
+//   segment limit 2^20-1 <=> actual segment limit 4GB-1
+//
+// The processor uses the segment limit in two different ways, depending on
+// whether the segment is an expand-up or an expand-down segment.
+// - For expand-up segments, the offset in a logical address can range from 0 to
+//   the segment limit. Offsets greater than the segment limit generate
+//   general-protection exceptions (#GP, for all segment other than SS)
+//   or stack-fault exceptions (#SS for the SS segment).
+// - For expand-down segments, the segment limit has the reverse function; the
+//   offset can range from the segment limit plus 1 to FFFFFFFFH or FFFFH,
+//   depending on the setting of the B flag. Offsets less than or equal to the
+//   segment limit generate general-protection exceptions or stack-fault
+//   exceptions. Decreasing the value in the segment limit field for an
+//   expanddown segment allocates new memory at the bottom of the segment's
+//   address space, rather than at the top.
+//   Q: what about an expand-down code segment?
+//   Q: what about an expand-down segment with B=0 but G=1?
 unsigned int SegmentLimit(Descriptor d) {
-  return ((d.h_dw.limit_16_19 << 16) | d.l_dw.limit_0_15) << (d.h_dw.g ? 12 : 0);
+  return ((((d.h_dw.limit_16_19 << 16) | d.l_dw.limit_0_15) + 1)
+          << (d.h_dw.g ? 12 : 0)) -
+         1;
 }
 
 void PrintDescriptorName(const char* name) {
@@ -139,37 +150,60 @@ void HandleTrapGate(Descriptor d) {
   printf("Trap-gate descriptor\n");
 }
 
+// Reference:
+// - https://blog.csdn.net/longintchar/article/details/78881396
+// - "Figure 5-1. Descriptor Fields Used for Protection" of 
+//   Intel® 64 and IA-32 Arcitectures Software Developer's Manual 3A
 const char *kSegmentFormat =
 "\n"
-" 31             24 23  22  21  20  19     16 15  14 13 12  11      8 7               0 \n"
-"+-----------------+---+---+---+---+---------+---+-----+---+---------+-----------------+\n"
-"|   Base Address  |   |   |   | A |  Limit  |   |     |   |  TYPE   |   Base Address  |\n"
-"|     31..24      | G | %s | L | V | 19..16  | P | DPL | S |---------|     23..16      |\n"
-"|                 |   |   |   | L |         |   |     |   |   %s |                 |\n"
-"+-----------------+---+---+---+---+---------+---+-----+---+---------+-----------------+ 4\n"
-"     %08x       %d   %d   %d   %d    %04x     %d    %d    %d   %d %d %d %d      %08x   \n"
-"+-------------------------------------------+-----------------------------------------+\n"
-"|             Base Address                  |            Segment Limit                |\n"
-"|                 15..0                     |                 15..0                   |\n"
-"|                                           |                                         |\n"
-"+-------------------------------------------+-----------------------------------------+ 0\n"
-"              %016x                            %016x                                   \n";
+" 31               24         19    16         11    8 7                 0\n"
+"+-------------------+-+-+-+-+--------+-+---+-+-------+-------------------+\n"
+"|    Base Address   | | | |A|  Limit | |   | | TYPE  |    Base Address   |\n"
+"|      31..24       |G|%s|L|V| 19..16 |P|DPL|S|-------|      23..16       |\n"
+"|                   | | | |L|        | |   | |  %s|                   |\n"
+"+-------------------+-+-+-+-+--------+-+---+-+-------+-------------------+ 4\n"
+"        %02x           %d %d %d %d    %x     %d  %d  %d %d %d %d %d         %02x\n"
+"+------------------------------------+-----------------------------------+\n"
+"|            Base Address            |          Segment Limit            |\n"
+"|                15..0               |               15..0               |\n"
+"|                                    |                                   |\n"
+"+------------------------------------+-----------------------------------+ 0\n"
+"                 %04x                                 %04x\n";
 
 void HandleCodeOrDataSegment(Descriptor d) {
-  int is_code = (d.h_dw.type & 8);
-  int type_0x4 = (d.h_dw.type & 4);
-  int type_0x2 = (d.h_dw.type & 2);
+  int is_code = ((d.h_dw.type & 8) >> 3);
+  int type_0x4 = ((d.h_dw.type & 4) >> 2);
+  int type_0x2 = ((d.h_dw.type & 2) >> 1);
   int type_0x1 = (d.h_dw.type & 1);
+  int g = d.h_dw.g;
   int d_b = d.h_dw.d_b;
+  int p = d.h_dw.p;
+  int dpl = d.h_dw.dpl;
   int s = d.h_dw.s;
+  int limit = SegmentLimit(d);
+  unsigned int expand_down_data_seg_upper_bound = d_b ? 0xffffffff : 0x0000ffff;
 
   PrintDescriptorName(
       is_code ? "Code-segment descriptor" : "Data-segment descriptor");
 
   // Base, Limit, G
-  printf("- segment base address: %#x\n", SegmentBase(d));
-  printf("- segment limit: %#x\n", SegmentLimit(d));
-  printf("- granularity: %s (G=%d)\n", (d.h_dw.g ? "4KB" : "B"), d.h_dw.g);
+  printf("- segment base address: %#010x\n", SegmentBase(d));
+  printf("- segment limit: %#010x", limit);
+  if (g) printf("=%dM-1", (limit+1) >> 20);
+  if (is_code || type_0x4 == 0) {
+    // Expand up.
+    printf(", range is [%#010x, %#010x] (expand-up)\n", 0, limit);
+  } else {
+    printf(", range is [%#010x, %#010x]",
+           limit+1, expand_down_data_seg_upper_bound);
+    if (expand_down_data_seg_upper_bound > (unsigned int)limit) {
+      printf("=%uB", expand_down_data_seg_upper_bound - limit);
+    } else {
+      printf("=%dB", expand_down_data_seg_upper_bound - limit);
+    }
+    printf(" (expand-down)\n");
+  }
+  printf("- granularity: %s (G=%d)\n", (g ? "4KB" : "1B"), g);
 
   // B/D field
   if (is_code) {
@@ -186,16 +220,22 @@ void HandleCodeOrDataSegment(Descriptor d) {
 
   // P, DPL, S
   printf("- segment %s in memory (P=%d)\n",
-         (d.h_dw.p ? "presents" : "doesn't present"), d.h_dw.p);
-  printf("- descriptor privilege level (DPL, 0 is the most): %d\n", d.h_dw.dpl);
+         (p ? "presents" : "doesn't present"), p);
+  printf("- descriptor privilege level (DPL, 0 is the most): %d\n", dpl);
   printf("- descriptor type: %s segment (S=%d)\n",
          s ? "system" : "code or data", s);
 
   // Type
-  printf("- type: ");
+  printf("- type %x: ", d.h_dw.type);
   printf("%s segment (TYPE & 0x08=%d), ", is_code ? "code" : "data", is_code);
   if (is_code) {
-    printf("%s (C=%d), ", type_0x4 ? "conforming" : "non-conforming", type_0x4);
+    //  Note:
+    //  - A transfer of execution into a more-privileged conforming segment
+    //    allows execution to continue at the current privilege level
+    //  - A transfer into a nonconforming segment at a different privilege level
+    //    results in a general-protection exception (#GP), unless a call gate or
+    //    task gate is used
+    printf("%s (C=%d), ", type_0x4 ? "conforming" : "nonconforming", type_0x4);
     printf("%s (R=%d), ", type_0x2 ? "execute/read" : "execute-only", type_0x2);
   } else {
     printf("%s (E=%d), ", type_0x4 ? "expand-down" : "expand-up", type_0x4);
@@ -206,9 +246,9 @@ void HandleCodeOrDataSegment(Descriptor d) {
 
   // Virtualize the format
   printf(kSegmentFormat, (is_code ? "D" : "B"), (is_code ? "C R A" : "E W A"),
-         d.h_dw.base_24_31, d.h_dw.g, d.h_dw.d_b, d.h_dw.l, d.h_dw.avl,
-         d.h_dw.limit_16_19, d.h_dw.p, d.h_dw.dpl, d.h_dw.s,
-         d.h_dw.type & 0x8, type_0x4, type_0x2, type_0x1, d.h_dw.base_16_23,
+         d.h_dw.base_24_31, g, d_b, d.h_dw.l, d.h_dw.avl,
+         d.h_dw.limit_16_19, p, dpl, s,
+         is_code, type_0x4, type_0x2, type_0x1, d.h_dw.base_16_23,
          d.l_dw.base_0_15, d.l_dw.limit_0_15);
 }
 
@@ -284,7 +324,11 @@ void Parse(Descriptor d) {
 int main(void) {
   printf("Enter the segment descriptor in 4 words. "
          "Format: <low_word> <low_mid_word> <mid_high_word> <high_word>\n");
-  printf("Example: 03ff 0000 fa00 00c0\n");
+  printf("Example:\n");
+  printf("- 03ff 0000 fa00 00c0\n");
+  printf("- 07ff 0000 9200 00c0\n");
+  printf("- 07ff 0000 9600 00c0\n");
+  printf("- 07ff 0000 9600 0080\n");
 
   Descriptor descriptor;
   unsigned int a, b, c, d;
