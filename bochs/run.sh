@@ -26,6 +26,11 @@ run() {
   build_img "$1"
   bochs -q -f bochsrc.txt
 }
+run_segment_descriptor_parser() {
+	local out=segment_descriptor_parser
+	gcc -o $out segment-descriptor-parser.cc && ./$out
+}
 
 # Type 'continue' or 'c' to start the virtual machine.
-run hello-world-boot.asm
+# run hello-world-boot.asm
+run_segment_descriptor_parser
