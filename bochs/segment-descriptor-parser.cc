@@ -116,9 +116,9 @@ void PrintDescriptorName(const char* name) {
   int dash_len = len - strlen(name);
   int left_dash_len = (dash_len >> 1) - 1;
   int right_dash_len = dash_len - left_dash_len - 2;
-  for (int i = 0; i < left_dash_len; ++i) printf("-");
+  for (int i = 0; i < left_dash_len; ++i) printf("=");
   printf(" %s ", name);
-  for (int i = 0; i < right_dash_len; ++i) printf("-");
+  for (int i = 0; i < right_dash_len; ++i) printf("=");
   printf("\n");
 }
 
@@ -156,19 +156,19 @@ void HandleTrapGate(Descriptor d) {
 //   Intel® 64 and IA-32 Arcitectures Software Developer's Manual 3A
 const char *kSegmentFormat =
 "\n"
-" 31               24         19    16         11    8 7                 0\n"
-"+-------------------+-+-+-+-+--------+-+---+-+-------+-------------------+\n"
-"|    Base Address   | | | |A|  Limit | |   | | TYPE  |    Base Address   |\n"
-"|      31..24       |G|%s|L|V| 19..16 |P|DPL|S|-------|      23..16       |\n"
-"|                   | | | |L|        | |   | |  %s|                   |\n"
-"+-------------------+-+-+-+-+--------+-+---+-+-------+-------------------+ 4\n"
-"        %02x           %d %d %d %d    %x     %d  %d  %d %d %d %d %d         %02x\n"
-"+------------------------------------+-----------------------------------+\n"
-"|            Base Address            |          Segment Limit            |\n"
-"|                15..0               |               15..0               |\n"
-"|                                    |                                   |\n"
-"+------------------------------------+-----------------------------------+ 0\n"
-"                 %04x                                 %04x\n";
+" 31              24         19    16         11    8 7                0\n"
+"+------------------+-+-+-+-+--------+-+---+-+-------+------------------+\n"
+"|   Base Address   | | | |A|  Limit | |   | | TYPE  |   Base Address   |\n"
+"|      31..24      |G|%s|L|V| 19..16 |P|DPL|S|-------|     23..16       |\n"
+"|                  | | | |L|        | |   | |  %s|                  |\n"
+"+------------------+-+-+-+-+--------+-+---+-+-------+------------------+ 4\n"
+"        %02x          %d %d %d %d    %x     %d  %d  %d %d %d %d %d         %02x\n"
+"+-----------------------------------+----------------------------------+\n"
+"|           Base Address            |          Segment Limit           |\n"
+"|               15..0               |              15..0               |\n"
+"|                                   |                                  |\n"
+"+-----------------------------------+----------------------------------+ 0\n"
+"                %04x                               %04x\n";
 
 void HandleCodeOrDataSegment(Descriptor d) {
   int is_code = ((d.h_dw.type & 8) >> 3);
@@ -189,7 +189,7 @@ void HandleCodeOrDataSegment(Descriptor d) {
   // Base, Limit, G
   printf("- segment base address: %#010x\n", SegmentBase(d));
   printf("- segment limit: %#010x", limit);
-  if (g) printf("=%dM-1", (limit+1) >> 20);
+  if (g) printf("=%dK-1", (limit+1) >> 10);
   if (is_code || type_0x4 == 0) {
     // Expand up.
     printf(", range is [%#010x, %#010x] (expand-up)\n", 0, limit);
