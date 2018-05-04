@@ -60,6 +60,7 @@ startup_32:
   lss esp, [init_stack]
 
   ; 设置8253定时芯片。把计数器通道0设置成每隔10ms向中断控制器发送一个中断请求信号
+  ; 怎么理解？
   mov al, 0x36     ; 控制字：设置通道0工作在方式3、计数初值采用二进制。
   mov edx, 0x43    ; 8253芯片控制字寄存器写端口
   out dx, al
@@ -73,19 +74,22 @@ startup_32:
   mov eax, 0x00080000      ; 中断程序属内核，即EAX高字是内核代码段选择符
 
   mov ax, timer_interrupt  ; 设置定时中断门描述符。取定时中断处理程序地址。
-  mov dx, 0x8e00           ; 中断门类型是14（屏蔽中断），特权级0或硬件使用。
+  mov dx, 0x8e00           ; 1(P)00(DPL)0(S) 1(D,32bits)110(interrupt gate)
   mov ecx, 0x08            ; 开机时BIOS设置的时钟中断向量号8，这里直接使用它。
+                           ; 怎样自己设置什么的中断是什么？
   lea esi, [idt+ecx*8]
   mov [esi], eax
   mov [esi+4], edx
 
   mov ax, system_interrupt ; 设置系统调用陷阱门描述符。取系统调用处理程序地址。
-  mov dx, 0xef00           ; 陷阱门类型是15，特权级3的程序可执行
+  mov dx, 0xef00           ; 1(P)11(DPL)0(S) 1(D,32bits)111(trap gate)
   mov ecx, 0x80            ; 系统调用向量号是0x80
   lea esi, [idt+ecx*8]     ; 把IDT描述符项0x80地址放入esi中，然后设置该描述符
   mov [esi], eax
   mov [esi+4], edx
 
+  ; 可以只push ds吗？edx和eax又没用？下面的ignore_int和timer_interrupt只push了
+  ; ds和eax！
   push edx
   push ds
   push eax
@@ -99,6 +103,7 @@ startup_32:
 
   ; 现在我们为移动到任务0（任务A）中执行来操作堆栈内容，在堆栈中人工建立中断返回
   ; 时的场景。
+  ; 下面20多行怎么理解？
   pushf              ; 复位标志寄存器EFLAGS中的嵌套任务标志
   and dword [esp], 0xffffbfff
   popf
@@ -138,10 +143,17 @@ setup_idt:
   ; - 第2、3个字节是段选择子（即这里eax的高16位）
   ; - 第4、5个字节是属性字（即这里的dx）
   ; - 第6、7个字节是偏移地址的高16位（即这里edx的高16位）
-  lea edx, [ignore_int]  ; 取ignore_int的物理地址。用mov edx, ignore_int也行?
+  lea edx, [ignore_int]  ; 取ignore_int的物理地址。用mov edx, ignore_int也行：
+                         ; 见上面的mov ax, timer_interrupt
   mov eax, 0x00080000    ; eax高16位=选择符0x0008，指向GDT中的第1个代码段描述符
   mov ax, dx             ; ignore_int地址的低16位
-  mov dx, 0x8e00         ; 属性字，0x8E00的意思是“有效的386中断门，特权级为0”。
+  ; 0x8e00为属性字，包含：
+  ; - P=1段在内存中
+  ; - DPL=00特权级
+  ; - S=0系统段
+  ; - TYPE=1110，其中最高位D=1表示32位门，第三位110表示这是一个中断门
+  ; - RESERVED=00000000
+  mov dx, 0x8e00
   lea edi, [idt]
   mov ecx, 256           ; 循环设置所有256个门描述符
 rp_idt:
@@ -157,12 +169,13 @@ rp_idt:
 ; 显示字符子程序。取当前光标位置并把AL中的字符显示在屏幕上。整屏可显示80×25个字符
 ; 要用到：
 ; - callee保存：gs, ebx
+; - caller设置：ds（用于访问src_loc），al（要显示的字符）
 ; - caller貌似不用保存任何东西，因为只访问了al而且没有写？
 write_char:
   push gs             ; 首先保存要用到的寄存器，EAX由调用者负责保存。
   push ebx
 
-  mov ebx, SCRN_SEL   ; 然后让GS指向显示内存段（0xb8000）。
+  mov ebx, SCRN_SEL   ; 然后让GS指向显示内存段（0xb8000）。为什么写这里就是写显示器？
   mov gs, ebx
 
   mov ebx, [scr_loc]  ; 再从变量scr_loc中取目前字符显示位置值。这里要用到ds？
@@ -204,7 +217,7 @@ timer_interrupt:
   push ds
   push eax
 
-  mov eax, DS_SEL     ; 首先让DS指向内核数据段。为什么？
+  mov eax, DS_SEL     ; 首先让DS指向内核数据段。
   mov ds, ax
 
   mov al, 0x20        ; 然后立刻允许其他硬件中断，即向8259A发送EOI命令
@@ -281,10 +294,47 @@ idt:                  ; IDT空间。共256个门描述符，每个8字节，占�
 ; 没有空描述符一说
 gdt:
   dw 0x0000, 0x0000, 0x0000, 0x0000  ; 空选择子。
-  dw 0x07FF, 0x0000, 0x9A00, 0x00C0  ; 基址0x00000限长(0x7ff+1)*4KB=8M的代码段，
-                                     ; 选择符0x08
-  dw 0x07FF, 0x0000, 0x9200, 0x00C0  ; 基址0x00000限长8M的数据段，选择符0x10
-  dw 0x0002, 0x8000, 0x920B, 0x00C0  ; 基址0xB8000限长12K的显存数据段，选择符0x18
+
+  ; Code-segment descriptor
+  ; - segment base address: 0000000000
+  ; - segment limit: 0x007fffff=8M-1, range is [0000000000, 0x007fffff]
+  ;   (expand-up)
+  ; - granularity: 4KB (G=1)
+  ; - default length for effective addresses and operands: 32-bit addresses and
+  ;   32-bit or 8-bit operands (D=1)
+  ; - segment presents in memory (P=1)
+  ; - descriptor privilege level (DPL, 0 is the most): 0
+  ; - descriptor type: non-system (code or data) segment (S=1)
+  ; - type 0xa: code segment (TYPE & 0x08=1), nonconforming (C=0), execute/read
+  ;   (R=1), not-accessed before (A=0)
+  dw 0x07FF, 0x0000, 0x9A00, 0x00C0  ; 选择符0x08
+
+  ; Data-segment descriptor
+  ; - segment base address: 0000000000
+  ; - segment limit: 0x007fffff=8M-1, range is [0000000000, 0x007fffff]
+  ;   (expand-up)
+  ; - granularity: 4KB (G=1)
+  ; - stack segment only: use 32bit esp (B=1)
+  ; - segment presents in memory (P=1)
+  ; - descriptor privilege level (DPL, 0 is the most): 0
+  ; - descriptor type: non-system (code or data) segment (S=1)
+  ; - type 0x2: data segment (TYPE & 0x08=0), expand-up (E=0), read/write (W=1),
+  ;   not-accessed before (A=0)
+  dw 0x07FF, 0x0000, 0x9200, 0x00C0  ; 选择符0x10
+
+  ; Data-segment descriptor
+  ; - segment base address: 0x000b8000
+  ; - segment limit: 0x00002fff=12K-1, range is [0000000000, 0x00002fff]
+  ;   (expand-up)
+  ; - granularity: 4KB (G=1)
+  ; - stack segment only: use 32bit esp (B=1)
+  ; - segment presents in memory (P=1)
+  ; - descriptor privilege level (DPL, 0 is the most): 0
+  ; - descriptor type: non-system (code or data) segment (S=1)
+  ; - type 0x2: data segment (TYPE & 0x08=0), expand-up (E=0), read/write (W=1),
+  ;   not-accessed before (A=0)
+  dw 0x0002, 0x8000, 0x920B, 0x00C0  ; 显存数据段，选择符0x18
+
   dw 0x0068, tss0,   0xE900, 0x0000  ; 对应于TSS0的描述符，基址暂定0x00000，但会
                                      ; 被设置为指向tss0处，限长为0x68，即102个
                                      ; 字节，其选择符是0x20。
@@ -304,8 +354,8 @@ init_stack:       ; 刚进入保护模式时用于加载SS:ESP堆栈指针值。
   dd init_stack   ; 堆栈段偏移位置。
   dw DS_SEL       ; 堆栈段==数据段。
 
-; 任务0的LDT表段中的局部段描述符。
-align 8
+; 任务0的LDT表段内容和TSS段内容。
+  align 8
 ldt0:
   dw 0x0000, 0x0000, 0x0000, 0x0000  ; 第1个描述符，不用。
   dw 0x03FF, 0x0000, 0xFA00, 0x00C0  ; 基址为0x00000、限长为4M字节、DPL为3的
@@ -314,7 +364,6 @@ ldt0:
   dw 0x03FF, 0x0000, 0xF200, 0x00C0  ; 基址为0x00000、限长为4M字节、DPL为3的
                                      ; 数据段、对应的选择符是0x17
                                      ; （二进制码Index=0010 TI=1 RPL=11）
-; 任务0的TSS段的内容。注意其中标号等字段在任务切换时不会改变。
 tss0:
   dd 0                    ; back link？？？
   dd krn_stk0, 0x10       ; esp0, ss0
@@ -373,5 +422,5 @@ y2:
   loop y2
   jmp task1
 
-  times 128 dd 0   ; 这是任务1的用户栈空间。有啥用？？
+  times 128 dd 0   ; 这是任务1的用户栈空间。有啥用？为什么任务0没有？
 usr_stk1:

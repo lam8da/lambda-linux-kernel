@@ -1,0 +1,170 @@
+Enter the segment descriptor in 4 words. Format: <low_word>, <low_mid_word>, <mid_high_word>, <high_word>
+Example:
+- 03ff, 0000, fa00, 00c0
+- 07ff, 0000, 9200, 00c0
+- 07ff, 0000, 9600, 00c0
+- 07ff, 0000, 9600, 0080
+> =============================== Code-segment descriptor ===============================
+- segment base address: 0000000000
+- segment limit: 0x003fffff=4096K-1, range is [0000000000, 0x003fffff] (expand-up)
+- granularity: 4KB (G=1)
+- default length for effective addresses and operands: 32-bit addresses and 32-bit or 8-bit operands (D=1)
+- segment presents in memory (P=1)
+- descriptor privilege level (DPL, 0 is the most): 3
+- descriptor type: non-system (code or data) segment (S=1)
+- type 0xa: code segment (TYPE & 0x08=1), nonconforming (C=0), execute/read (R=1), not-accessed before (A=0)
+
+ 31           24         19   16         11    8 7             0
++---------------+-+-+-+-+-------+-+---+-+-------+---------------+
+|  Base Address | | | |A| Limit | |   | | TYPE  |  Base Address |
+|     31..24    |G|D|L|V|19..16 |P|DPL|S|-------|    23..16     |
+|               | | | |L|       | |   | |  C R A|               |
++---------------+-+-+-+-+-------+-+---+-+-------+---------------+ 4
+       00        1 1 0 0   0     1  3  1 1 0 1 0       00
++-------------------------------+-------------------------------+
+|         Base Address          |         Segment Limit         |
+|             15..0             |             15..0             |
+|                               |                               |
++-------------------------------+-------------------------------+ 0
+              0000                            03ff
+> =============================== Data-segment descriptor ===============================
+- segment base address: 0000000000
+- segment limit: 0x007fffff=8192K-1, range is [0000000000, 0x007fffff] (expand-up)
+- granularity: 4KB (G=1)
+- stack segment only: use 32bit esp (B=1)
+- segment presents in memory (P=1)
+- descriptor privilege level (DPL, 0 is the most): 0
+- descriptor type: non-system (code or data) segment (S=1)
+- type 0x2: data segment (TYPE & 0x08=0), expand-up (E=0), read/write (W=1), not-accessed before (A=0)
+
+ 31           24         19   16         11    8 7             0
++---------------+-+-+-+-+-------+-+---+-+-------+---------------+
+|  Base Address | | | |A| Limit | |   | | TYPE  |  Base Address |
+|     31..24    |G|B|L|V|19..16 |P|DPL|S|-------|    23..16     |
+|               | | | |L|       | |   | |  E W A|               |
++---------------+-+-+-+-+-------+-+---+-+-------+---------------+ 4
+       00        1 1 0 0   0     1  0  1 0 0 1 0       00
++-------------------------------+-------------------------------+
+|         Base Address          |         Segment Limit         |
+|             15..0             |             15..0             |
+|                               |                               |
++-------------------------------+-------------------------------+ 0
+              0000                            07ff
+> =============================== Data-segment descriptor ===============================
+- segment base address: 0000000000
+- segment limit: 0x007fffff=8192K-1, range is [0x00800000, 0xffffffff]=4286578688B (expand-down)
+- granularity: 4KB (G=1)
+- stack segment only: use 32bit esp (B=1)
+- expand-down data segment only: upper bound of the segment is 0xffffffff (B=1)
+- segment presents in memory (P=1)
+- descriptor privilege level (DPL, 0 is the most): 0
+- descriptor type: non-system (code or data) segment (S=1)
+- type 0x6: data segment (TYPE & 0x08=0), expand-down (E=1), read/write (W=1), not-accessed before (A=0)
+
+ 31           24         19   16         11    8 7             0
++---------------+-+-+-+-+-------+-+---+-+-------+---------------+
+|  Base Address | | | |A| Limit | |   | | TYPE  |  Base Address |
+|     31..24    |G|B|L|V|19..16 |P|DPL|S|-------|    23..16     |
+|               | | | |L|       | |   | |  E W A|               |
++---------------+-+-+-+-+-------+-+---+-+-------+---------------+ 4
+       00        1 1 0 0   0     1  0  1 0 1 1 0       00
++-------------------------------+-------------------------------+
+|         Base Address          |         Segment Limit         |
+|             15..0             |             15..0             |
+|                               |                               |
++-------------------------------+-------------------------------+ 0
+              0000                            07ff
+> =============================== Data-segment descriptor ===============================
+- segment base address: 0000000000
+- segment limit: 0x007fffff=8192K-1, range is [0x00800000, 0x0000ffff]=-8323072B (expand-down)
+- granularity: 4KB (G=1)
+- stack segment only: use 16bit sp (B=0)
+- expand-down data segment only: upper bound of the segment is 0xffff (B=0)
+- segment presents in memory (P=1)
+- descriptor privilege level (DPL, 0 is the most): 0
+- descriptor type: non-system (code or data) segment (S=1)
+- type 0x6: data segment (TYPE & 0x08=0), expand-down (E=1), read/write (W=1), not-accessed before (A=0)
+
+ 31           24         19   16         11    8 7             0
++---------------+-+-+-+-+-------+-+---+-+-------+---------------+
+|  Base Address | | | |A| Limit | |   | | TYPE  |  Base Address |
+|     31..24    |G|B|L|V|19..16 |P|DPL|S|-------|    23..16     |
+|               | | | |L|       | |   | |  E W A|               |
++---------------+-+-+-+-+-------+-+---+-+-------+---------------+ 4
+       00        1 0 0 0   0     1  0  1 0 1 1 0       00
++-------------------------------+-------------------------------+
+|         Base Address          |         Segment Limit         |
+|             15..0             |             15..0             |
+|                               |                               |
++-------------------------------+-------------------------------+ 0
+              0000                            07ff
+> =============================== Code-segment descriptor ===============================
+- segment base address: 0000000000
+- segment limit: 0x007fffff=8192K-1, range is [0000000000, 0x007fffff] (expand-up)
+- granularity: 4KB (G=1)
+- default length for effective addresses and operands: 32-bit addresses and 32-bit or 8-bit operands (D=1)
+- segment presents in memory (P=1)
+- descriptor privilege level (DPL, 0 is the most): 0
+- descriptor type: non-system (code or data) segment (S=1)
+- type 0xa: code segment (TYPE & 0x08=1), nonconforming (C=0), execute/read (R=1), not-accessed before (A=0)
+
+ 31           24         19   16         11    8 7             0
++---------------+-+-+-+-+-------+-+---+-+-------+---------------+
+|  Base Address | | | |A| Limit | |   | | TYPE  |  Base Address |
+|     31..24    |G|D|L|V|19..16 |P|DPL|S|-------|    23..16     |
+|               | | | |L|       | |   | |  C R A|               |
++---------------+-+-+-+-+-------+-+---+-+-------+---------------+ 4
+       00        1 1 0 0   0     1  0  1 1 0 1 0       00
++-------------------------------+-------------------------------+
+|         Base Address          |         Segment Limit         |
+|             15..0             |             15..0             |
+|                               |                               |
++-------------------------------+-------------------------------+ 0
+              0000                            07ff
+> =============================== Data-segment descriptor ===============================
+- segment base address: 0000000000
+- segment limit: 0x007fffff=8192K-1, range is [0000000000, 0x007fffff] (expand-up)
+- granularity: 4KB (G=1)
+- stack segment only: use 32bit esp (B=1)
+- segment presents in memory (P=1)
+- descriptor privilege level (DPL, 0 is the most): 0
+- descriptor type: non-system (code or data) segment (S=1)
+- type 0x2: data segment (TYPE & 0x08=0), expand-up (E=0), read/write (W=1), not-accessed before (A=0)
+
+ 31           24         19   16         11    8 7             0
++---------------+-+-+-+-+-------+-+---+-+-------+---------------+
+|  Base Address | | | |A| Limit | |   | | TYPE  |  Base Address |
+|     31..24    |G|B|L|V|19..16 |P|DPL|S|-------|    23..16     |
+|               | | | |L|       | |   | |  E W A|               |
++---------------+-+-+-+-+-------+-+---+-+-------+---------------+ 4
+       00        1 1 0 0   0     1  0  1 0 0 1 0       00
++-------------------------------+-------------------------------+
+|         Base Address          |         Segment Limit         |
+|             15..0             |             15..0             |
+|                               |                               |
++-------------------------------+-------------------------------+ 0
+              0000                            07ff
+> =============================== Data-segment descriptor ===============================
+- segment base address: 0x000b8000
+- segment limit: 0x00002fff=12K-1, range is [0000000000, 0x00002fff] (expand-up)
+- granularity: 4KB (G=1)
+- stack segment only: use 32bit esp (B=1)
+- segment presents in memory (P=1)
+- descriptor privilege level (DPL, 0 is the most): 0
+- descriptor type: non-system (code or data) segment (S=1)
+- type 0x2: data segment (TYPE & 0x08=0), expand-up (E=0), read/write (W=1), not-accessed before (A=0)
+
+ 31           24         19   16         11    8 7             0
++---------------+-+-+-+-+-------+-+---+-+-------+---------------+
+|  Base Address | | | |A| Limit | |   | | TYPE  |  Base Address |
+|     31..24    |G|B|L|V|19..16 |P|DPL|S|-------|    23..16     |
+|               | | | |L|       | |   | |  E W A|               |
++---------------+-+-+-+-+-------+-+---+-+-------+---------------+ 4
+       00        1 1 0 0   0     1  0  1 0 0 1 0       0b
++-------------------------------+-------------------------------+
+|         Base Address          |         Segment Limit         |
+|             15..0             |             15..0             |
+|                               |                               |
++-------------------------------+-------------------------------+ 0
+              8000                            0002
+> 

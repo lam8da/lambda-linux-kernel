@@ -1,30 +1,53 @@
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 // 定义描述符中的低32位
-struct DescriptorLowDWord {
-  unsigned int limit_0_15 : 16;  // 段限长0-15位
-  unsigned int base_0_15 : 16;   // 基地址0-15位
+union DescriptorLowDWord {
+  struct {  // Code/data segment
+    unsigned short limit_0_15 : 16;  // 段限长0-15位
+    unsigned short base_0_15 : 16;   // 基地址0-15位
+  };
+  struct {  // Gate
+    unsigned short offset_0_15_or_reserved : 16;
+    unsigned short selector : 16;
+  };
 };
 
 // 定义描述符中的高32位(通用格式)
 struct DescriptorHighDWord {
-  unsigned int base_16_23 : 8;   // 基地址16-23位
-  unsigned int type : 4;         // 段类型
-  unsigned int s : 1;            // 描述符类型，0是系统描述符，1是代码或数据
-  unsigned int dpl : 2;          // 特权级
-  unsigned int p : 1;            // 段是否存在于内存中
-  unsigned int limit_16_19 : 4;  // 段限长16-19位
-  unsigned int avl : 1;          // 无预定义功能，可由操作系统任意使用
-  unsigned int l : 1;            // 保留给64位处理器使用
-  unsigned int d_b : 1;          // 1表示代码/数据/堆栈段运行于32位模式，0是16位
-  unsigned int g : 1;            // 段限长的scaling factor，0/1表示以1/4KB位单位
-  unsigned int base_24_31 : 8;   // 基地址24-32位
+  // 1st byte
+  union {
+    struct {  // Code/data segment
+      unsigned char base_16_23 : 8;   // 基地址16-23位
+    };
+    struct {  // Gate
+      unsigned char param_count_or_reserved : 5;
+      unsigned char zeros_or_reserved : 3;
+    };
+  };
+  // 2nd byte
+  unsigned char type : 4;         // 段类型
+  unsigned char s : 1;            // 描述符类型，0是系统描述符，1是代码或数据
+  unsigned char dpl : 2;          // 特权级
+  unsigned char p : 1;            // 段是否存在于内存中
+  // 3th and 4th byte
+  union {
+    struct {  // Code/data segment
+      unsigned char limit_16_19 : 4;  // 段限长16-19位
+      unsigned char avl : 1;          // 无预定义功能，可由操作系统任意使用
+      unsigned char l : 1;            // 保留给64位处理器使用
+      unsigned char d_b : 1;          // 1/0表示代码/数据/堆栈段运行于32/16位模式
+      unsigned char g : 1;            // 段限长的比例因子，0/1表示以1/4KB位单位
+      unsigned char base_24_31 : 8;   // 基地址24-32位
+    };
+    unsigned short offset_16_31_or_reserved : 16;
+  };
 };
 
 struct Descriptor {
-  DescriptorLowDWord l_dw;
-  DescriptorHighDWord h_dw;
+  union DescriptorLowDWord l_dw;
+  struct DescriptorHighDWord h_dw;
 };
 
 /*
@@ -134,20 +157,60 @@ void HandleLDT(Descriptor d) {
   printf("Local descriptor-table (LDT) segment descriptor\n");
 }
 
-void HandleCallGate(Descriptor d) {
-  printf("Call-gate descriptor\n");
-}
+const char *kGateFormat =
+"\n"
+" 31                           16         11    8 7             0\n"
+"+-------------------------------+-+---+-+-------+---------------+\n"
+"|                               | |   | | TYPE  |     %s         |\n"
+"|         %s         |P|DPL|S|-------|%s|\n"
+"|                               | |   | |%s|     %s         |\n"
+"+-------------------------------+-+---+-+-------+---------------+ 4\n"
+"              %04x               %d  %d  %d %d %d %d %d       %02x\n"
+"+-------------------------------+-------------------------------+\n"
+"|                               |                               |\n"
+"|     %s Segment Selector     |          %s          |\n"
+"|                               |                               |\n"
+"+-------------------------------+-------------------------------+ 0\n"
+"              %04x                               %04x\n";
 
-void HandleTaskGate(Descriptor d) {
-  printf("Task-gate descriptor\n");
-}
+void HandleGate(Descriptor d) {
+  int type = d.h_dw.type;
+  switch (type) {
+    case 4: case 5: case 6: case 7: case 12: case 14: case 15:
+      break;
+    default:
+      printf("Invalid gate type: %d\n", type);
+      return;
+  }
+  int gate_type = (d.h_dw.type & 0x7);
+  int is_call_gate = (gate_type == 4);
+  int is_task_gate = (gate_type == 5);
+  int is_interrupt_gate = (gate_type == 6);
+  int is_trap_gate = (gate_type == 7);
 
-void HandleInterruptGate(Descriptor d) {
-  printf("Interrupt-gate descriptor\n");
-}
+  int type_0x8 = ((d.h_dw.type & 8) >> 3);
+  int type_0x4 = ((d.h_dw.type & 4) >> 2);
+  int type_0x2 = ((d.h_dw.type & 2) >> 1);
+  int type_0x1 = (d.h_dw.type & 1);
+  int p = d.h_dw.p;
+  int dpl = d.h_dw.dpl;
+  int s = d.h_dw.s;
 
-void HandleTrapGate(Descriptor d) {
-  printf("Trap-gate descriptor\n");
+  const char* gate_str[4] = {"Call", "Task", "Interrupt", "Trap"};
+  PrintDescriptorName("%s-gate descriptor", gate_str[gate_type-4]);
+  printf(kGateFormat,
+         is_task_gate ? " " : "|",
+         is_task_gate ? "   Reserved  " : "Offset 31..16",
+         is_task_gate
+             ? "   Reserved    "
+             : (is_call_gate ? "0 0 0| #params " : "0 0 0| Reserved"),
+         (is_call_gate || is_task_gate) ? "       " : "D      ",
+         is_task_gate ? " " : "|",
+         d.h_dw.offset_16_31_or_reserved,
+         p, dpl, s, type_0x8, type_0x4, type_0x2, type_0x1,
+         d.h_dw.zeros_or_reserved, d.h_dw.param_count_or_reserved,
+         is_task_gate ? " TSS" : "Code",
+         is_task_gate ? "            " : "Offset 15..0");
 }
 
 // Reference:
@@ -156,19 +219,19 @@ void HandleTrapGate(Descriptor d) {
 //   Intel® 64 and IA-32 Arcitectures Software Developer's Manual 3A
 const char *kSegmentFormat =
 "\n"
-" 31              24         19    16         11    8 7                0\n"
-"+------------------+-+-+-+-+--------+-+---+-+-------+------------------+\n"
-"|   Base Address   | | | |A|  Limit | |   | | TYPE  |   Base Address   |\n"
-"|      31..24      |G|%s|L|V| 19..16 |P|DPL|S|-------|     23..16       |\n"
-"|                  | | | |L|        | |   | |  %s|                  |\n"
-"+------------------+-+-+-+-+--------+-+---+-+-------+------------------+ 4\n"
-"        %02x          %d %d %d %d    %x     %d  %d  %d %d %d %d %d         %02x\n"
-"+-----------------------------------+----------------------------------+\n"
-"|           Base Address            |          Segment Limit           |\n"
-"|               15..0               |              15..0               |\n"
-"|                                   |                                  |\n"
-"+-----------------------------------+----------------------------------+ 0\n"
-"                %04x                               %04x\n";
+" 31           24         19   16         11    8 7             0\n"
+"+---------------+-+-+-+-+-------+-+---+-+-------+---------------+\n"
+"|  Base Address | | | |A| Limit | |   | | TYPE  |  Base Address |\n"
+"|     31..24    |G|%s|L|V|19..16 |P|DPL|S|-------|    23..16     |\n"
+"|               | | | |L|       | |   | |  %s|               |\n"
+"+---------------+-+-+-+-+-------+-+---+-+-------+---------------+ 4\n"
+"       %02x        %d %d %d %d   %x     %d  %d  %d %d %d %d %d       %02x\n"
+"+-------------------------------+-------------------------------+\n"
+"|         Base Address          |         Segment Limit         |\n"
+"|             15..0             |             15..0             |\n"
+"|                               |                               |\n"
+"+-------------------------------+-------------------------------+ 0\n"
+"              %04x                            %04x\n";
 
 void HandleCodeOrDataSegment(Descriptor d) {
   int is_code = ((d.h_dw.type & 8) >> 3);
@@ -213,9 +276,11 @@ void HandleCodeOrDataSegment(Descriptor d) {
   } else {
     printf("- stack segment only: use %s (B=%d)\n",
            (d_b ? "32bit esp" : "16bit sp"), d_b);
-    printf("- expand-down data segment only: upper bound of the segment is %s "
-           "(B=%d)\n",
-           (d_b ? "0xffffffff" : "0xffff"), d_b);
+    if (type_0x4) {
+      printf("- expand-down data segment only: upper bound of the segment is "
+             "%s (B=%d)\n",
+             (d_b ? "0xffffffff" : "0xffff"), d_b);
+    }
   }
 
   // P, DPL, S
@@ -223,10 +288,10 @@ void HandleCodeOrDataSegment(Descriptor d) {
          (p ? "presents" : "doesn't present"), p);
   printf("- descriptor privilege level (DPL, 0 is the most): %d\n", dpl);
   printf("- descriptor type: %s segment (S=%d)\n",
-         s ? "system" : "code or data", s);
+         s ? "non-system (code or data)" : "system", s);
 
   // Type
-  printf("- type %x: ", d.h_dw.type);
+  printf("- type 0x%x: ", d.h_dw.type);
   printf("%s segment (TYPE & 0x08=%d), ", is_code ? "code" : "data", is_code);
   if (is_code) {
     //  Note:
@@ -281,14 +346,14 @@ void Parse(Descriptor d) {
     // | 15       1  1 1 1 | 32-bit Trap Gate        |
     // +-------------------+-------------------------+
     switch (d.h_dw.type) {
-      case 0: case 8:  case 10: case 13: HandleReserved(d);      break;
-      case 1: case 3:  case 9:  case 11: HandleTSS(d);           break;
-      case 2:                            HandleLDT(d);           break;
-      case 4: case 12:                   HandleCallGate(d);      break;
-      case 5:                            HandleTaskGate(d);      break;
-      case 6: case 14:                   HandleInterruptGate(d); break;
-      case 7: case 15:                   HandleTrapGate(d);      break;
-      default: printf("Invalid type: %#x\n", d.h_dw.type);       break;
+      case 0: case 8:  case 10: case 13:    HandleReserved(d); break;
+      case 1: case 3:  case 9:  case 11:    HandleTSS(d);      break;
+      case 2:                               HandleLDT(d);      break;
+      case 4: case 12: /* call      gate */ HandleGate(d);     break;
+      case 5:          /* task      gate */ HandleGate(d);     break;
+      case 6: case 14: /* interrupt gate */ HandleGate(d);     break;
+      case 7: case 15: /* trap      gate */ HandleGate(d);     break;
+      default: printf("Invalid type: %#x\n", d.h_dw.type);     break;
     }
   } else {
     // Table 3-1. Code- and Data-Segment Types
@@ -323,22 +388,30 @@ void Parse(Descriptor d) {
 
 int main(void) {
   printf("Enter the segment descriptor in 4 words. "
-         "Format: <low_word> <low_mid_word> <mid_high_word> <high_word>\n");
+         "Format: <low_word>, <low_mid_word>, <mid_high_word>, <high_word>\n");
   printf("Example:\n");
-  printf("- 03ff 0000 fa00 00c0\n");
-  printf("- 07ff 0000 9200 00c0\n");
-  printf("- 07ff 0000 9600 00c0\n");
-  printf("- 07ff 0000 9600 0080\n");
+  printf("- 03ff, 0000, fa00, 00c0\n");
+  printf("- 07ff, 0000, 9200, 00c0\n");
+  printf("- 07ff, 0000, 9600, 00c0\n");
+  printf("- 07ff, 0000, 9600, 0080\n");
 
-  Descriptor descriptor;
+  Descriptor desc;
+  size_t l_dw_size = sizeof(desc.l_dw);
+  size_t h_dw_size = sizeof(desc.h_dw);
+  size_t desc_size = sizeof(desc);
+  if (l_dw_size != 4 || h_dw_size != 4 || desc_size != 8) {
+    printf("Size error: l_dw_size:%lu, h_dw_size:%lu, desc_size:%lu\n",
+           l_dw_size, h_dw_size, desc_size);
+  }
+
   unsigned int a, b, c, d;
   printf("> ");
-  while (scanf("%x %x %x %x", &a, &b, &c, &d) == 4) {
+  while (scanf("%x, %x, %x, %x", &a, &b, &c, &d) == 4) {
     unsigned int l_dw = ((b << 16) | a);
     unsigned int h_dw = ((d << 16) | c);
-    descriptor.l_dw = *(DescriptorLowDWord*)&l_dw;
-    descriptor.h_dw = *(DescriptorHighDWord*)&h_dw;
-    Parse(descriptor);
+    desc.l_dw = *(DescriptorLowDWord*)&l_dw;
+    desc.h_dw = *(DescriptorHighDWord*)&h_dw;
+    Parse(desc);
     printf("> ");
   }
   return 0;
