@@ -28,9 +28,9 @@ run() {
 }
 run_segment_descriptor_parser() {
 	local out=segment_descriptor_parser
-	gcc -o $out segment-descriptor-parser.cc && ./$out
+	gcc -o $out segment_descriptor_parser.cc && ./$out
 }
 
 # Type 'continue' or 'c' to start the virtual machine.
-# run hello-world-boot.asm
+# run hello_world_boot.asm
 run_segment_descriptor_parser

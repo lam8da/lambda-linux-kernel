@@ -50,42 +50,54 @@ struct Descriptor {
   struct DescriptorHighDWord h_dw;
 };
 
+int TypeBit(Descriptor d, int bit) {
+  return (d.h_dw.type & (1 << bit)) >> bit;
+}
+
+int ToBinary(int decimal) {
+  int b = 0;
+  unsigned int mask = (1 << 31);
+  while (mask) {
+    b = b * 10 + ((decimal & mask) ? 1 : 0);
+    mask >>= 1;
+  }
+  return b;
+}
+
+void Print_P_DPL_S_TYPE(Descriptor d) {
+  printf("- segment %s in memory (P=%d)\n",
+         (d.h_dw.p ? "presents" : "doesn't present"), d.h_dw.p);
+  printf("- descriptor privilege level (DPL, 0 is the most): %d\n", d.h_dw.dpl);
+  printf("- descriptor type: %s segment (S=%d)\n",
+         d.h_dw.s ? "non-system (code or data)" : "system", d.h_dw.s);
+  printf("- type 0x%x: ", d.h_dw.type);
+}
+
 /*
-  int offset = (hig_dw & 0xFFFF0000) | (low_dw & 0x0000FFFF);
-  if (system == 0) {  // 系统段
-    printf("系统段描述符\n");
-    if (type == 9 || type == 11 || type == 2) {
-      printf("基地址 = %#x\n", seg_base);
-      printf("段限长 = %#x ，", seg_limit);
-      if (ph->g == 1) {
-        printf("以4KB为单位\n");
-      } else {
-        printf("以B为单位\n");
-      }
-    }
-    if (type == 9) {
-      printf("TSS段，不忙\n");
-    } else if (type == 11) {
-      printf("TSS段，忙\n");
-    } else if (type == 5) {
-      printf("任务门，TSS段选择子 = %#x\n", pl->base_0_15);
-    } else if (type == 6) {
-      printf("16位中断门，段选择子 = %#x，偏移 = %#x\n", pl->base_0_15, offset);
-    } else if (type == 14) {
-      printf("32位中断门，段选择子 = %#x，偏移 = %#x\n", pl->base_0_15, offset);
-    } else if (type == 7) {
-      printf("16位陷阱门，段选择子 = %#x，偏移 = %#x\n", pl->base_0_15, offset);
-    } else if (type == 15) {
-      printf("32位陷阱门，段选择子 = %#x，偏移 = %#x\n", pl->base_0_15, offset);
-    } else if (type == 12) {
-      printf("调用门，段选择子 = %#x，偏移 = %#x , 参数个数 = %d\n",
-             pl->base_0_15,
-             offset,
-             hig_dw & 0x1F);
-    } else if (type == 2) {
-      printf("LDT描述符\n");
+if (system == 0) {  // 系统段
+  printf("系统段描述符\n");
+  if (type == 9 || type == 11 || type == 2) {
+    printf("基地址 = %#x\n", seg_base);
+    printf("段限长 = %#x ，", seg_limit);
+    if (ph->g == 1) {
+      printf("以4KB为单位\n");
+    } else {
+      printf("以B为单位\n");
     }
   }
+  if (type == 9) {
+    printf("TSS段，不忙\n");
+  } else if (type == 11) {
+    printf("TSS段，忙\n");
+  } else if (type == 5) {
+    printf("任务门，TSS段选择子 = %#x\n", pl->base_0_15);
+  } else if (type == 6) {
+    printf("调用门，段选择子 = %#x，偏移 = %#x , 参数个数 = %d\n",
+           pl->base_0_15, offset, hig_dw & 0x1F);
+  } else if (type == 2) {
+    printf("LDT描述符\n");
+  }
+}
 */
 
 unsigned int SegmentBase(Descriptor d) {
@@ -146,15 +158,15 @@ void PrintDescriptorName(const char* name) {
 }
 
 void HandleReserved(Descriptor d) {
-  printf("Reserved\n");
+  PrintDescriptorName("Reserved (not a valid descriptor)");
 }
 
 void HandleTSS(Descriptor d) {
-  printf("Task-state segment (TSS) descriptor\n");
+  PrintDescriptorName("Task-state segment (TSS) descriptor");
 }
 
 void HandleLDT(Descriptor d) {
-  printf("Local descriptor-table (LDT) segment descriptor\n");
+  PrintDescriptorName("Local descriptor-table (LDT) segment descriptor");
 }
 
 const char *kGateFormat =
@@ -165,13 +177,13 @@ const char *kGateFormat =
 "|         %s         |P|DPL|S|-------|%s|\n"
 "|                               | |   | |%s|     %s         |\n"
 "+-------------------------------+-+---+-+-------+---------------+ 4\n"
-"              %04x               %d  %d  %d %d %d %d %d       %02x\n"
+"             0x%04x              %d %02d  %d %d %d %d %d  %03d    %05d\n"
 "+-------------------------------+-------------------------------+\n"
 "|                               |                               |\n"
-"|     %s Segment Selector     |          %s          |\n"
+"|     %s Segment Selector     |          %s         |\n"
 "|                               |                               |\n"
 "+-------------------------------+-------------------------------+ 0\n"
-"              %04x                               %04x\n";
+"             0x%04x                           0x%04x\n";
 
 void HandleGate(Descriptor d) {
   int type = d.h_dw.type;
@@ -188,29 +200,55 @@ void HandleGate(Descriptor d) {
   int is_interrupt_gate = (gate_type == 6);
   int is_trap_gate = (gate_type == 7);
 
-  int type_0x8 = ((d.h_dw.type & 8) >> 3);
-  int type_0x4 = ((d.h_dw.type & 4) >> 2);
-  int type_0x2 = ((d.h_dw.type & 2) >> 1);
-  int type_0x1 = (d.h_dw.type & 1);
+  int type_0x8 = TypeBit(d, 3);
+  int type_0x4 = TypeBit(d, 2);
+  int type_0x2 = TypeBit(d, 1);
+  int type_0x1 = TypeBit(d, 0);
   int p = d.h_dw.p;
   int dpl = d.h_dw.dpl;
   int s = d.h_dw.s;
 
-  const char* gate_str[4] = {"Call", "Task", "Interrupt", "Trap"};
-  PrintDescriptorName("%s-gate descriptor", gate_str[gate_type-4]);
+  const char* gate_type_str[4] = {"Call", "Task", "Interrupt", "Trap"};
+  char gate_str[30];
+  strcpy(gate_str, gate_type_str[gate_type-4]);
+  strcat(gate_str, "-gate descriptor");
+  PrintDescriptorName(gate_str);
+
+  printf("- %s segment selector: 0x%04x\n", (is_task_gate ? "tss" : "code"),
+         d.l_dw.selector);
+  if (!is_task_gate) {
+    int offset = ((((int)d.h_dw.offset_16_31_or_reserved) << 16) |
+                  (d.l_dw.offset_0_15_or_reserved & 0x0000ffff));
+    printf("- offset in segment: 0x%08x\n", offset);
+  }
+
+  // P, DPL, S, Type
+  Print_P_DPL_S_TYPE(d);
+  if (is_interrupt_gate || is_trap_gate) {
+    printf("%dbit size gate (D=%d)\n", type_0x8 ? 32 : 16, type_0x8);
+  } else {
+    printf("\n");
+  }
+
+  // Parameter count
+  if (is_call_gate) {
+    printf("- parameter count: %d\n", d.h_dw.param_count_or_reserved);
+  }
+
   printf(kGateFormat,
          is_task_gate ? " " : "|",
          is_task_gate ? "   Reserved  " : "Offset 31..16",
-         is_task_gate
-             ? "   Reserved    "
-             : (is_call_gate ? "0 0 0| #params " : "0 0 0| Reserved"),
+         is_task_gate ? "   Reserved    "
+                      : (is_call_gate ? "0 0 0| #params " : "0 0 0| Reserved"),
          (is_call_gate || is_task_gate) ? "       " : "D      ",
          is_task_gate ? " " : "|",
          d.h_dw.offset_16_31_or_reserved,
-         p, dpl, s, type_0x8, type_0x4, type_0x2, type_0x1,
-         d.h_dw.zeros_or_reserved, d.h_dw.param_count_or_reserved,
+         p, ToBinary(dpl), s, type_0x8, type_0x4, type_0x2, type_0x1,
+         ToBinary(d.h_dw.zeros_or_reserved),
+         ToBinary(d.h_dw.param_count_or_reserved),
          is_task_gate ? " TSS" : "Code",
-         is_task_gate ? "            " : "Offset 15..0");
+         is_task_gate ? "  Reserved  " : "Offset 15..0",
+         d.l_dw.selector, d.l_dw.offset_0_15_or_reserved);
 }
 
 // Reference:
@@ -225,19 +263,19 @@ const char *kSegmentFormat =
 "|     31..24    |G|%s|L|V|19..16 |P|DPL|S|-------|    23..16     |\n"
 "|               | | | |L|       | |   | |  %s|               |\n"
 "+---------------+-+-+-+-+-------+-+---+-+-------+---------------+ 4\n"
-"       %02x        %d %d %d %d   %x     %d  %d  %d %d %d %d %d       %02x\n"
+"    %08d     %d %d %d %d  %04d   %d %02d  %d %d %d %d %d    %08d\n"
 "+-------------------------------+-------------------------------+\n"
 "|         Base Address          |         Segment Limit         |\n"
 "|             15..0             |             15..0             |\n"
 "|                               |                               |\n"
 "+-------------------------------+-------------------------------+ 0\n"
-"              %04x                            %04x\n";
+"             0x%04x                          0x%04x\n";
 
 void HandleCodeOrDataSegment(Descriptor d) {
-  int is_code = ((d.h_dw.type & 8) >> 3);
-  int type_0x4 = ((d.h_dw.type & 4) >> 2);
-  int type_0x2 = ((d.h_dw.type & 2) >> 1);
-  int type_0x1 = (d.h_dw.type & 1);
+  int is_code = TypeBit(d, 3);
+  int type_0x4 = TypeBit(d, 2);
+  int type_0x2 = TypeBit(d, 1);
+  int type_0x1 = TypeBit(d, 0);
   int g = d.h_dw.g;
   int d_b = d.h_dw.d_b;
   int p = d.h_dw.p;
@@ -250,14 +288,14 @@ void HandleCodeOrDataSegment(Descriptor d) {
       is_code ? "Code-segment descriptor" : "Data-segment descriptor");
 
   // Base, Limit, G
-  printf("- segment base address: %#010x\n", SegmentBase(d));
-  printf("- segment limit: %#010x", limit);
+  printf("- segment base address: 0x%08x\n", SegmentBase(d));
+  printf("- segment limit: 0x%08x", limit);
   if (g) printf("=%dK-1", (limit+1) >> 10);
   if (is_code || type_0x4 == 0) {
     // Expand up.
-    printf(", range is [%#010x, %#010x] (expand-up)\n", 0, limit);
+    printf(", range is [0x%08x, 0x%08x] (expand-up)\n", 0, limit);
   } else {
-    printf(", range is [%#010x, %#010x]",
+    printf(", range is [0x%08x, 0x%08x]",
            limit+1, expand_down_data_seg_upper_bound);
     if (expand_down_data_seg_upper_bound > (unsigned int)limit) {
       printf("=%uB", expand_down_data_seg_upper_bound - limit);
@@ -283,15 +321,8 @@ void HandleCodeOrDataSegment(Descriptor d) {
     }
   }
 
-  // P, DPL, S
-  printf("- segment %s in memory (P=%d)\n",
-         (p ? "presents" : "doesn't present"), p);
-  printf("- descriptor privilege level (DPL, 0 is the most): %d\n", dpl);
-  printf("- descriptor type: %s segment (S=%d)\n",
-         s ? "non-system (code or data)" : "system", s);
-
-  // Type
-  printf("- type 0x%x: ", d.h_dw.type);
+  // P, DPL, S, Type
+  Print_P_DPL_S_TYPE(d);
   printf("%s segment (TYPE & 0x08=%d), ", is_code ? "code" : "data", is_code);
   if (is_code) {
     //  Note:
@@ -311,9 +342,9 @@ void HandleCodeOrDataSegment(Descriptor d) {
 
   // Virtualize the format
   printf(kSegmentFormat, (is_code ? "D" : "B"), (is_code ? "C R A" : "E W A"),
-         d.h_dw.base_24_31, g, d_b, d.h_dw.l, d.h_dw.avl,
-         d.h_dw.limit_16_19, p, dpl, s,
-         is_code, type_0x4, type_0x2, type_0x1, d.h_dw.base_16_23,
+         ToBinary(d.h_dw.base_24_31), g, d_b, d.h_dw.l, d.h_dw.avl,
+         ToBinary(d.h_dw.limit_16_19), p, ToBinary(dpl), s,
+         is_code, type_0x4, type_0x2, type_0x1, ToBinary(d.h_dw.base_16_23),
          d.l_dw.base_0_15, d.l_dw.limit_0_15);
 }
 
