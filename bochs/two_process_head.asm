@@ -17,6 +17,9 @@
 ; 个数即时钟周期，HZ为希望8253发送中断请求的频率
 ; LATCH    equ 596500 ; HZ=2，每秒2次即500ms一次。但不能这么设因为最大值为65536
 LATCH    equ 11930  ; HZ=100，每秒100次，即10ms一次
+PRINT_CYCLE equ 300  ; 所有任务被调度了这么多次后才显示完一轮字符
+TASK0_CYCLE equ PRINT_CYCLE/2
+TASK1_CYCLE equ PRINT_CYCLE
 CS_SEL   equ 0x08   ; Index:001 TI:0 RPL:00。gdt的第二个段即代码段选择符
 DS_SEL   equ 0x10   ; Index:010 TI:0 RPL:00。第三个段即数据段选择符，和代码段重合
 SCRN_SEL equ 0x18   ; Index:011 TI:0 RPL:00。屏幕显示内存段选择符。
@@ -233,14 +236,25 @@ timer_interrupt:
   je x2
   mov dword [current], eax ; 若当前任务是0，则把1存入current，并跳转到任务1
   jmp TSS1_SEL:0      ; 去执行。注意跳转的偏移值无用，但需要写上。怎样返回？
-  jmp x3              ; 这句怎么执行？难道上面的jmp TSS1_SEL:0之后还会返回？
+  jmp x4              ; 这句怎么执行？难道上面的jmp TSS1_SEL:0之后还会返回？
 x2:
   mov dword [current], 0   ; 若当前任务是1，则把0存入current，并跳转到任务0
   jmp TSS0_SEL:0      ; 去执行
+
+  mov eax, [sched_cnt]; 并且增加调度次数计数器
+  cmp eax, PRINT_CYCLE
+  jne x3
+  xor eax, eax
 x3:
+  inc eax
+  mov [sched_cnt], eax
+x4:
   pop eax
   pop ds
   iret
+
+sched_cnt:
+  dd 0                ; 时钟中断发生的次数，满PRINT_CYCLE次清0
 
 ; ==============================================================================
 ; 系统调用中断int 0x80处理程序。该示例只有一个显示字符功能。由两个进程调用。
@@ -410,21 +424,35 @@ krn_stk1:
 
 ; 下面是任务0和任务1的程序，它们分别循环显示字符“A”和“B”。
 task0:
-  mov eax, 0x17    ; 首先让DS指向任务的局部数据段
-  mov ds, ax       ; 因为任务没有使用局部数据，所以这两句可省略
+  mov eax, 0x17    ; 首先让DS指向任务的局部数据段，用来访问[sched_cnt]
+  mov ds, ax
+  mov eax, [sched_cnt]
+  cmp eax, TASK0_CYCLE
+  jne y00
+  ; 显示字符
   mov al, 65       ; 把需要显示的字符"A"放入AL寄存器中
   int 0x80         ; 执行系统调用，显示字符
-  mov ecx, 0xfff   ; 执行循环，起延时作用
-y1:
-  loop y1
+  ; 执行循环，起延时作用
+y00:
+  mov ecx, 0xffff
+y01:
+  loop y01
   jmp task0        ; 跳转到任务代码开始处继续显示字符
 
 task1:
-  mov al, 66       ; 把需要显示的字符"B"放入AL寄存器中
-  int 0x80         ; 执行系统调用，显示字符
-  mov ecx, 0xfff   ; 执行循环，起延时作用
-y2:
-  loop y2
+  mov eax, 0x17    ; 首先让DS指向任务的局部数据段，用来访问[sched_cnt]
+  mov ds, ax
+  mov eax, [sched_cnt]
+  cmp eax, TASK1_CYCLE
+  jne y10
+  ; 显示字符B
+  mov al, 66
+  int 0x80
+  ; 循环延时
+y10:
+  mov ecx, 0xffff
+y11:
+  loop y11
   jmp task1
 
   times 128 dd 0   ; 这是任务1的用户栈空间。有啥用？为什么任务0没有？
