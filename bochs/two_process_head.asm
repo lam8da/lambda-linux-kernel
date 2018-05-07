@@ -96,18 +96,12 @@ startup_32:
   mov [esi], eax
   mov [esi+4], edx
 
-  ; 可以只push ds吗？edx和eax又没用？下面的ignore_int和timer_interrupt只push了
-  ; ds和eax！
-  push edx
   push ds
-  push eax
-  mov edx, DS_SEL  ; 首先让DS指向内核数据段
-  mov ds, dx
-  mov eax, 'W'
+  mov eax, DS_SEL  ; 首先让DS指向内核数据段
+  mov ds, ax
+  mov al, 'W'
   call write_char  ; 然后调用显示字符子程序write_char，显示AL中的字符。
-  pop eax
   pop ds
-  pop edx
 
   ; 现在我们为移动到任务0（任务A）中执行来操作堆栈内容，在堆栈中人工建立中断返回
   ; 时的场景。
@@ -241,12 +235,12 @@ x2:
   mov dword [current], 0   ; 若当前任务是1，则把0存入current，并跳转到任务0
   jmp TSS0_SEL:0      ; 去执行
 
-  mov eax, [sched_cnt]; 并且增加调度次数计数器
+  mov eax, [sched_cnt]
   cmp eax, PRINT_CYCLE
-  jne x3
+  jb x3
   xor eax, eax
 x3:
-  inc eax
+  inc eax             ; 并且增加调度次数计数器
   mov [sched_cnt], eax
 x4:
   pop eax
@@ -424,35 +418,31 @@ krn_stk1:
 
 ; 下面是任务0和任务1的程序，它们分别循环显示字符“A”和“B”。
 task0:
-  mov eax, 0x17    ; 首先让DS指向任务的局部数据段，用来访问[sched_cnt]
+  ; 首先让DS指向任务的局部数据段，用来访问[sched_cnt]
+  mov eax, 0x17
   mov ds, ax
+  ; 判断是否已满足调度次数约束
   mov eax, [sched_cnt]
   cmp eax, TASK0_CYCLE
-  jne y00
-  ; 显示字符
+  jne task0        ; 如果不是就死循环等待
+  inc eax          ; 否则增加调度计数器，因为希望只输出一次字符
+  mov [sched_cnt], eax
+  ; 然后显示字符
   mov al, 65       ; 把需要显示的字符"A"放入AL寄存器中
   int 0x80         ; 执行系统调用，显示字符
-  ; 执行循环，起延时作用
-y00:
-  mov ecx, 0xffff
-y01:
-  loop y01
   jmp task0        ; 跳转到任务代码开始处继续显示字符
 
 task1:
-  mov eax, 0x17    ; 首先让DS指向任务的局部数据段，用来访问[sched_cnt]
+  mov eax, 0x17
   mov ds, ax
   mov eax, [sched_cnt]
   cmp eax, TASK1_CYCLE
-  jne y10
+  jne task1
+  inc eax
+  mov [sched_cnt], eax
   ; 显示字符B
   mov al, 66
   int 0x80
-  ; 循环延时
-y10:
-  mov ecx, 0xffff
-y11:
-  loop y11
   jmp task1
 
   times 128 dd 0   ; 这是任务1的用户栈空间。有啥用？为什么任务0没有？
