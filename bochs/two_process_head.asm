@@ -98,16 +98,12 @@ startup_32:
 
   ; 可以只push ds吗？edx和eax又没用？下面的ignore_int和timer_interrupt只push了
   ; ds和eax！
-  push edx
   push ds
-  push eax
-  mov edx, DS_SEL  ; 首先让DS指向内核数据段
-  mov ds, dx
-  mov eax, 'W'
+  mov eax, DS_SEL  ; 首先让DS指向内核数据段
+  mov ds, ax
+  mov al, 'W'
   call write_char  ; 然后调用显示字符子程序write_char，显示AL中的字符。
-  pop eax
   pop ds
-  pop edx
 
   ; 现在我们为移动到任务0（任务A）中执行来操作堆栈内容，在堆栈中人工建立中断返回
   ; 时的场景。
