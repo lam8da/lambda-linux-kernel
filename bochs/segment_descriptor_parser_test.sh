@@ -1,10 +1,11 @@
 #!/bin/bash
 set -x
 
-bin=/tmp/segment_descriptor_parser
-output=/tmp/segment_descriptor_parser_output-$RANDOM
+name=segment_descriptor_parser
+bin=/tmp/${name}.out
+output=/tmp/${name}_output-$RANDOM
 
-gcc -o $bin segment_descriptor_parser.cc
+gcc -o $bin ${name}.cc
 
 # Order: code, data, interrupt, trap, call, task
 $bin > $output <<EOF
@@ -24,4 +25,4 @@ EOF
 
 # 0x0068, 0x1111, 0xE900, 0x0000
 
-diff segment_descriptor_parser.testdata $output
+diff ${name}.testdata $output

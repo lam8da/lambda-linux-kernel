@@ -17,7 +17,9 @@ go:
   ; 读取软盘的第2个扇区开始的[SYSLEN]个扇区的数据，读到[SYSSEG]:0处，第1个扇区是
   ; 引导扇区！
 load_system:
-  mov dx, 0x80          ; 利用BIOS中断int 0x13功能2从启动盘读取head代码。
+  ; 利用BIOS中断int 0x13功能2从引导盘读取head代码。
+  ; mov dx, 0x80          ; 从第一个硬盘读取
+  mov dx, 0x00          ; 从第一个软盘读取
   mov cx, 2             ; CL - 位7、6是磁道号高2位，位5～0起始扇区号（从1计）。
                         ; DH - 磁头号；DL - 驱动器号；CH - 10位磁道号低8位；
   mov ax, SYSSEG

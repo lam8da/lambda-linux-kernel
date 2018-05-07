@@ -31,12 +31,18 @@ build_two_process() {
   build_img two_process_head.asm oseek=1
 }
 run() {
-	# Type 'continue' or 'c' to start the virtual machine.
+	reset_x_if_set
+	echo "===> Type 'c' to start the virtual machine."
+	echo "===> Note we can use the debugger to debug, try:"
+	echo "     > b 0x7c00"
+	echo "     > u/10"
+	echo "===> We can also use ndisasm command to disassemble the .bin/.img file."
+	set_x_if_set
   bochs -q -f bochsrc.txt
 }
 run_segment_descriptor_parser() {
-	local out=segment_descriptor_parser
-	gcc -o $out segment_descriptor_parser.cc && ./$out
+	local name=segment_descriptor_parser
+	gcc -o $name.out $name.cc && ./$name.out
 }
 
 # build_hello_world

@@ -13,7 +13,10 @@
 ;    的切换操作。
 ; 6. nasm的语法在：http://www.cburch.com/csbsju/cs/350/docs/nasm/nasmdoc0.html
 
-LATCH    equ 11930  ; 定时器初始计数值，即每隔10ms发送一次中断请求。
+; LATCH为定时器初始计数值，=1193000/HZ，其中1193000为晶体振荡器一秒产生的脉冲
+; 个数即时钟周期，HZ为希望8253发送中断请求的频率
+; LATCH    equ 596500 ; HZ=2，每秒2次即500ms一次。但不能这么设因为最大值为65536
+LATCH    equ 11930  ; HZ=100，每秒100次，即10ms一次
 CS_SEL   equ 0x08   ; Index:001 TI:0 RPL:00。gdt的第二个段即代码段选择符
 DS_SEL   equ 0x10   ; Index:010 TI:0 RPL:00。第三个段即数据段选择符，和代码段重合
 SCRN_SEL equ 0x18   ; Index:011 TI:0 RPL:00。屏幕显示内存段选择符。
@@ -59,12 +62,14 @@ startup_32:
   mov gs, eax
   lss esp, [init_stack]
 
-  ; 设置8253定时芯片。把计数器通道0设置成每隔10ms向中断控制器发送一个中断请求信号
-  ; 怎么理解？
+  ; 设置8253定时芯片。把计数器通道0设置成每隔10ms向中断控制器发送一个中断请求
+  ; 参考：
+  ; - http://blog.sina.com.cn/s/blog_70dd169101019xq2.html
+  ; - http://blog.sina.com.cn/s/blog_70dd169101019xr4.html
   mov al, 0x36     ; 控制字：设置通道0工作在方式3、计数初值采用二进制。
   mov edx, 0x43    ; 8253芯片控制字寄存器写端口
   out dx, al
-  mov eax, LATCH   ; 初始计数值设置为LATCH(1193180/100)，即频率100Hz。
+  mov eax, LATCH   ; 初始计数值设置为LATCH
   mov edx, 0x40    ; 通道0的端口
   out dx, al       ; 分两次把初始计数值写入通道0
   mov al, ah
