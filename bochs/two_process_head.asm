@@ -172,7 +172,7 @@ rp_idt:
 ; 要用到：
 ; - callee保存：gs, ebx
 ; - caller设置：ds（用于访问src_loc），al（要显示的字符）
-; - caller貌似不用保存任何东西，因为只访问了al而且没有写？
+; - caller不用保存任何东西，因为只访问了al而且没有写
 write_char:
   push gs             ; 首先保存要用到的寄存器，EAX由调用者负责保存。
   push ebx
@@ -180,7 +180,7 @@ write_char:
   mov ebx, SCRN_SEL   ; 然后让GS指向显示内存段（0xb8000）。为什么写这里就是写显示器？
   mov gs, ebx
 
-  mov ebx, [scr_loc]  ; 再从变量scr_loc中取目前字符显示位置值。这里要用到ds？
+  mov ebx, [scr_loc]  ; 再从变量scr_loc中取目前字符显示位置值。这里要用到ds
   shl ebx, 1          ; 因为在屏幕上每个字符还有一个属性字节，因此字符
                       ; 实际显示位置对应的显示内存偏移地址要乘以2
   mov [gs:ebx], al
@@ -257,17 +257,11 @@ sched_cnt:
 system_interrupt:
   push ds
   push edx
-  push ecx            ; 为什么要这句？
-  push ebx            ; 为什么要这句？
-  push eax            ; 为什么要这句？
 
   mov edx, DS_SEL     ; 让DS指向内核数据段。因为write_char要用来读写内核数据段
   mov ds, dx
   call write_char     ; 然后调用显示字符子程序write_char，显示AL中的字符。
 
-  pop eax
-  pop ebx
-  pop ecx
   pop edx
   pop ds
   iret
@@ -444,6 +438,3 @@ task1:
   mov al, 66
   int 0x80
   jmp task1
-
-  times 128 dd 0   ; 这是任务1的用户栈空间。有啥用？为什么任务0没有？
-usr_stk1:
