@@ -12,6 +12,7 @@
 ; 5. 在初始化完成之后程序移动到任务0开始执行，并在时钟中断控制下进行任务0和1之间
 ;    的切换操作。
 ; 6. nasm的语法在：http://www.cburch.com/csbsju/cs/350/docs/nasm/nasmdoc0.html
+; 7. https://legacy.gitbook.com/book/wizardforcel/intel-80386-ref-manual/details
 
 ; LATCH为定时器初始计数值，=1193000/HZ，其中1193000为晶体振荡器一秒产生的脉冲
 ; 个数即时钟周期，HZ为希望8253发送中断请求的频率
@@ -84,7 +85,8 @@ startup_32:
   mov ax, timer_interrupt  ; 设置定时中断门描述符。取定时中断处理程序地址。
   mov dx, 0x8e00           ; 1(P)00(DPL)0(S) 1(D,32bits)110(interrupt gate)
   mov ecx, 0x08            ; 开机时BIOS设置的时钟中断向量号8，这里直接使用它。
-                           ; 怎样自己设置什么的中断是什么？
+                           ; 可以通过对中断控制器的编程来改变向量号的分配，见：
+                           ; https://zhuanlan.zhihu.com/p/27485717
   lea esi, [idt+ecx*8]
   mov [esi], eax
   mov [esi+4], edx
@@ -97,18 +99,18 @@ startup_32:
   mov [esi+4], edx
 
   push ds
-  mov eax, DS_SEL  ; 首先让DS指向内核数据段
+  mov eax, DS_SEL          ; 首先让DS指向内核数据段
   mov ds, ax
   mov al, 'W'
-  call write_char  ; 然后调用显示字符子程序write_char，显示AL中的字符。
+  call write_char          ; 然后调用显示字符子程序write_char，显示AL中的字符。
   pop ds
 
   ; 现在我们为移动到任务0（任务A）中执行来操作堆栈内容，在堆栈中人工建立中断返回
   ; 时的场景。
-  ; 下面20多行怎么理解？
-  pushf              ; 复位标志寄存器EFLAGS中的嵌套任务标志
+  pushf              ; 把标志寄存器EFLAGS push到栈中
+  ; 复位嵌套任务标志。该标志表示一任务通过call调用了另一任务，而这里并不是这样。
   and dword [esp], 0xffffbfff
-  popf
+  popf               ; 弹回EFLAGS寄存器中
 
   mov eax, TSS0_SEL  ; 把任务0的TSS段选择符加载到任务寄存器TR
   ltr ax
@@ -119,6 +121,12 @@ startup_32:
   sti                ; 现在开启中断，并在栈中营造中断返回时的场景。
 
   ; 假装是从中断程序返回，从而实现从特权级0的内核代码切换到特权级3的用户代码中去
+  ; 根据Intel的manual：the IRET instruction pops the return instruction pointer,
+  ; return code segment selector, and EFLAGS image from the stack to the EIP,
+  ; CS, and EFLAGS registers, respectively, and then resumes execution of the
+  ; interrupted program or procedure. If the return is to another privilege
+  ; level, the IRET instruction also pops the stack pointer and SS from the
+  ; stack, before resuming program execution.
   push 0x17          ; 把任务0当前局部空间数据段（堆栈段）选择符入栈。
   push krn_stk0      ; 把堆栈指针入栈（也可以直接把esp入栈）。
   pushf              ; 把标志寄存器入栈。
@@ -177,7 +185,16 @@ write_char:
   push gs             ; 首先保存要用到的寄存器，EAX由调用者负责保存。
   push ebx
 
-  mov ebx, SCRN_SEL   ; 然后让GS指向显示内存段（0xb8000）。为什么写这里就是写显示器？
+  ; A0000h - AFFFFh是图形模式（Graphic Mode）的显存
+  ; B0000h - B7FFFh是黑白文字模式（Mono Text Mode）的显存
+  ; B8000h - BFFFFh是彩色文字模式的显存。
+  ; 这些非物理内存的存储空间由北桥芯片映射到物理地址上。当cpu读写这些地址，北桥
+  ; 芯片会将其请求重定位到显存中而不是物理内存中。因此cpu无法控制这个映射。
+  ; 参考：
+  ; - https://en.wikipedia.org/wiki/Memory-mapped_I/O
+  ; - https://manybutfinite.com/post/motherboard-chipsets-memory-map/
+  ; - http://blog.kongfy.com/2014/03/%E8%AF%91%E4%B8%BB%E6%9D%BF%E8%8A%AF%E7%89%87%E9%9B%86%E5%92%8C%E5%AD%98%E5%82%A8%E5%9C%B0%E5%9D%80%E6%98%A0%E5%B0%84-motherboard-chipsets-and-the-memory-map/
+  mov ebx, SCRN_SEL   ; 然后让GS指向显示内存段（0xb8000）。
   mov gs, ebx
 
   mov ebx, [scr_loc]  ; 再从变量scr_loc中取目前字符显示位置值。这里要用到ds
@@ -223,7 +240,7 @@ timer_interrupt:
   mov ds, ax
 
   mov al, 0x20        ; 然后立刻允许其他硬件中断，即向8259A发送EOI命令
-  out 0x20, al        ; 0x20是8259A的地址吗？
+  out 0x20, al        ; 0x20是8259A主片的第一个端口地址
 
   mov eax, 1          ; 接着判断当前任务，若是任务1则去执行任务0，或反之
   cmp dword [current], eax
@@ -372,7 +389,7 @@ ldt0:
                                      ; 数据段、对应的选择符是0x17
                                      ; （二进制码Index=0010 TI=1 RPL=11）
 tss0:
-  dd 0                    ; back link？？？
+  dd 0                    ; back link
   dd krn_stk0, 0x10       ; esp0, ss0
   dd 0, 0, 0, 0, 0        ; esp1, ss1, esp2, ss2, cr3
   dd task0                ; 确保第一次切换到任务0的时候EIP从这里取值，即从task0
