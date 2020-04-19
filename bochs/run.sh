@@ -1,6 +1,7 @@
 #!/bin/bash
 set -x
 
+# Used in bochsrc.txt
 IMG_FILE=bin/boot.img
 
 install_tools() {
@@ -52,7 +53,7 @@ run() {
 }
 run_segment_descriptor_parser() {
   local name=segment_descriptor_parser
-  gcc -o $name.out $name.cc && ./$name.out
+  gcc -o bin/$name.out src/$name.cc && ./bin/$name.out
 }
 
 # build_hello_world
