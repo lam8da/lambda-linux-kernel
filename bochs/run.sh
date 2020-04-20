@@ -1,6 +1,9 @@
 #!/bin/bash
 set -x
 
+# Note: in macos to use gcc we only need to install
+# Command_Line_Tools_for_Xcode_xx.x.x.dmg, not xcode itself.
+
 # Used in bochsrc.txt
 IMG_FILE=bin/boot.img
 
@@ -31,7 +34,15 @@ build_img() {
   local bin=${src//.asm/.bin}
   bin=${bin//src\//bin\/}
   nasm "$src" -f bin -o "$bin"
+
   # Copy the bin file to img file
+  #
+  # - bs=n: Set both input and output block size to n bytes, superseding the ibs
+  #   and obs operands
+  # - conv=notrunc: Do not truncate the output file. This will preserve any
+  #   blocks in the output file not explicitly written by dd
+  # - count=n: Copy only n input blocks.
+  # - oseek=n: Seek on the output file n blocks.
   dd if="$bin" of="$IMG_FILE" bs=512 conv=notrunc "$@"
 }
 build_hello_world() {
@@ -42,6 +53,12 @@ build_two_process() {
   build_img src/two_process_head.asm oseek=1
 }
 run() {
+  local program=${program:-two_process}
+  if [[ "$program" == 'hello_world' ]]; then
+    build_hello_world
+  elif [[ "$program" == 'two_process' ]]; then
+    build_two_process
+  fi
   unset_x
   echo "===> Type 'c' to start the virtual machine."
   echo "===> Note we can use the debugger to debug, try:"
@@ -51,12 +68,12 @@ run() {
   reset_x
   bochs -q -f bochsrc.txt
 }
-run_segment_descriptor_parser() {
+parse() {
   local name=segment_descriptor_parser
   gcc -o bin/$name.out src/$name.cc && ./bin/$name.out
 }
 
-# build_hello_world
-build_two_process
-run
-# run_segment_descriptor_parser
+if [[ "$#" -eq 0 ]]; then
+  set run
+fi
+"$@"

@@ -13,12 +13,14 @@
 ;    的切换操作。
 ; 6. nasm的语法在：http://www.cburch.com/csbsju/cs/350/docs/nasm/nasmdoc0.html
 ; 7. https://legacy.gitbook.com/book/wizardforcel/intel-80386-ref-manual/details
+; 8. 各种门、段选择符、段描述符的关系见：
+;    Vol. 3A: Figure 2-1. IA-32 System-Level Registers and Data Structures
 
 ; LATCH为定时器初始计数值，=1193000/HZ，其中1193000为晶体振荡器一秒产生的脉冲
 ; 个数即时钟周期，HZ为希望8253发送中断请求的频率
 ; LATCH    equ 596500 ; HZ=2，每秒2次即500ms一次。但不能这么设因为最大值为65536
 LATCH    equ 11930  ; HZ=100，每秒100次，即10ms一次
-PRINT_CYCLE equ 300  ; 所有任务被调度了这么多次后才显示完一轮字符
+PRINT_CYCLE equ 300 ; 所有任务被调度了这么多次后才显示完一轮字符（即一次AB）
 TASK0_CYCLE equ PRINT_CYCLE/2
 TASK1_CYCLE equ PRINT_CYCLE
 CS_SEL   equ 0x08   ; Index:001 TI:0 RPL:00。gdt的第二个段即代码段选择符
@@ -79,7 +81,7 @@ startup_32:
   mov al, ah
   out dx, al
 
-  ; 在IDT表第8和第128（0x80）项处分别设置定时中断门描述符和系统调用陷阱门描述符。
+  ; 在IDT表第8项处设置定时中断门描述符。
   mov eax, 0x00080000      ; 中断程序属内核，即EAX高字是内核代码段选择符
 
   mov ax, timer_interrupt  ; 设置定时中断门描述符。取定时中断处理程序地址。
@@ -91,6 +93,7 @@ startup_32:
   mov [esi], eax
   mov [esi+4], edx
 
+  ; 在IDT表第128（0x80）项处设置系统调用陷阱门描述符。
   mov ax, system_interrupt ; 设置系统调用陷阱门描述符。取系统调用处理程序地址。
   mov dx, 0xef00           ; 1(P)11(DPL)0(S) 1(D,32bits)111(trap gate)
   mov ecx, 0x80            ; 系统调用向量号是0x80
@@ -98,6 +101,7 @@ startup_32:
   mov [esi], eax
   mov [esi+4], edx
 
+  ; 显示第一个字符'W'
   push ds
   mov eax, DS_SEL          ; 首先让DS指向内核数据段
   mov ds, ax
@@ -108,7 +112,9 @@ startup_32:
   ; 现在我们为移动到任务0（任务A）中执行来操作堆栈内容，在堆栈中人工建立中断返回
   ; 时的场景。
   pushf              ; 把标志寄存器EFLAGS push到栈中
-  ; 复位嵌套任务标志。该标志表示一任务通过call调用了另一任务，而这里并不是这样。
+  ; 复位嵌套任务标志（即NT，Nested Task）。该标志表示一任务通过call调用了另一任
+  ; 务，而这里并不是这样。于是，根据Vol. 3A: 7.3 TASK SWITCHING中任务切换的方式
+  ; 的描述，下面的iret **并不** 触发任务切换（即不做任务切换那11步操作）！
   and dword [esp], 0xffffbfff
   popf               ; 弹回EFLAGS寄存器中
 
@@ -214,7 +220,9 @@ x1:
   ret
 
 ; ==============================================================================
-; 这是默认的中断处理程序，功能是在屏幕上显示一个字符C。
+; 这是默认的中断处理程序，功能是在屏幕上显示一个字符"!"。
+; 问：为什么只能显示一次？例如按下任意按键触发第一次中断时显示了"!"，但是第二次
+; 时就不显示了？
   align 4           ; 双字对齐
 ignore_int:
   push ds
@@ -222,7 +230,7 @@ ignore_int:
 
   mov eax, DS_SEL   ; 首先让DS指向内核数据段，因为中断程序属于内核，而且显示程序
   mov ds, eax       ; 需要内核数据段来访问内存（例如取scr_loc）
-  mov eax, 67       ; 在AL中存放"C"的代码，调用显示程序显示在屏幕上
+  mov eax, 33       ; 在AL中存放"!"的代码，调用显示程序显示在屏幕上
   call write_char
 
   pop eax
@@ -317,6 +325,7 @@ idt:                  ; IDT空间。共256个门描述符，每个8字节，占�
 ; 选择子就不是空选择子，它指向的LDT中的0号描述符是可以正常使用的，也就是LDT中
 ; 没有空描述符一说
 gdt:
+  ; 格式：段限长，段基址，属性，属性
   dw 0x0000, 0x0000, 0x0000, 0x0000  ; 空选择子。
 
   ; Code-segment descriptor
@@ -359,18 +368,14 @@ gdt:
   ;   not-accessed before (A=0)
   dw 0x0002, 0x8000, 0x920B, 0x00C0  ; 显存数据段，选择符0x18
 
-  dw 0x0068, tss0,   0xE900, 0x0000  ; 对应于TSS0的描述符，基址暂定0x00000，但会
-                                     ; 被设置为指向tss0处，限长为0x68，即102个
-                                     ; 字节，其选择符是0x20。
-  dw 0x0040, ldt0,   0xE200, 0x0000  ; 对应于LDT0的描述符，基址暂定0x00000，但会
-                                     ; 被设置为指向ldt0处，限长为0x40，即64个字
-                                     ; 节，其选择符是0x28。
-  dw 0x0068, tss1,   0xE900, 0x0000  ; 对应于TSS1的描述符，基址暂定0x00000，但会
-                                     ; 被设置为指向tss1处，限长为0x68，即102个
-                                     ; 字节，其选择符是0x30。
-  dw 0x0040, ldt1,   0xE200, 0x0000  ; 对应于LDT1的描述符，基址暂定0x00000，但会
-                                     ; 被设置为指向ldt1处，限长为0x40，即64个字
-                                     ; 节，其选择符是0x38。
+  dw 0x0068,   tss0, 0xE900, 0x0000  ; 对应于TSS0的描述符，基址指向tss0处，限长
+                                     ; 为0x68，即102个字节，其选择符是0x20。
+  dw 0x0040,   ldt0, 0xE200, 0x0000  ; 对应于LDT0的描述符，基址指向ldt0处，限长
+                                     ; 为0x40，即64个字节，其选择符是0x28。
+  dw 0x0068,   tss1, 0xE900, 0x0000  ; 对应于TSS1的描述符，基址指向tss1处，限长
+                                     ; 为0x68，即102个字节，其选择符是0x30。
+  dw 0x0040,   ldt1, 0xE200, 0x0000  ; 对应于LDT1的描述符，基址指向ldt1处，限长
+                                     ; 为0x40，即64个字节，其选择符是0x38。
 end_gdt:
 
   times 128 dd 0  ; 初始内核堆栈空间。
@@ -440,7 +445,7 @@ task0:
   mov [sched_cnt], eax
   ; 然后显示字符
   mov al, 65       ; 把需要显示的字符"A"放入AL寄存器中
-  int 0x80         ; 执行系统调用，显示字符
+  int 0x80         ; 执行系统调用system_interrupt，显示字符
   jmp task0        ; 跳转到任务代码开始处继续显示字符
 
 task1:
