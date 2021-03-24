@@ -45,11 +45,11 @@ build_img() {
   dd if="$bin" of="$IMG_FILE" bs=512 conv=notrunc "$@"
 }
 build_hello_world() {
-  build_img src/hello_world_boot.asm count=1
+  build_img experiment/hello_world_boot.asm count=1
 }
 build_two_process() {
-  build_img src/two_process_boot.asm count=1
-  build_img src/two_process_head.asm oseek=1
+  build_img experiment/two_process_boot.asm count=1
+  build_img experiment/two_process_head.asm oseek=1
 }
 run() {
   local program=${program:-two_process}
@@ -69,7 +69,7 @@ run() {
 }
 parse() {
   local name=segment_descriptor_parser
-  gcc -o bin/$name.out src/$name.cc && ./bin/$name.out
+  gcc -o bin/$name.out experiment/$name.cc && ./bin/$name.out
 }
 
 if [[ "$#" -eq 0 ]]; then
