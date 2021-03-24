@@ -52,7 +52,10 @@ ok_load:
 
   ; 设置控制寄存器CR0（即机器状态字），进入保护模式。
   mov ax, 0x0001        ; 在CR0中设置保护模式标志PE(位0)。
-  lmsw ax  
+  lmsw ax               ; loads the machine status word (part of CR0) from the
+                        ; source operand. This instruction can be used to switch
+                        ; to Protected Mode; if so, it must be followed by an
+                        ; intrasegment jump to flush the instruction queue.
   jmp 8:0               ; 跳转至段选择符值8指定的段中（即GDT表第2个段描述符），
                         ; 偏移0处。注意此时段值已是段选择符。该段的线性基地址是0
 

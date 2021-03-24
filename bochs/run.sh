@@ -1,4 +1,3 @@
-#!/bin/bash
 set -x
 
 # Note: in macos to use gcc we only need to install
@@ -15,7 +14,7 @@ install_tools() {
 }
 diff_bin() {
   if [[ "$#" -ne 2 ]]; then
-    echo 'Usage: diff_bin <file1> <file2>'
+    >&2 echo -e "\e[93m Usage: diff_bin <file1> <file2> \e[0m"
     return
   fi
   local o1=/tmp/hexdump-"$1"
@@ -26,7 +25,7 @@ diff_bin() {
 }
 build_img() {
   if [[ "$#" -lt 1 ]]; then
-    echo 'Usage: build_img <src> [<dd args>...]'
+    >&2 echo -e "\e[93m Usage: build_img <src> [<dd args>...] \e[0m"
     return
   fi
   local src="$1"
@@ -60,11 +59,11 @@ run() {
     build_two_process
   fi
   unset_x
-  echo "===> Type 'c' to start the virtual machine."
-  echo "===> Note we can use the debugger to debug, try:"
-  echo "     > b 0x7c00"
-  echo "     > u/10"
-  echo "===> We can also use ndisasm command to disassemble the .bin/.img file."
+  >&2 echo -e "\e[93m ===> Type 'c' to start the virtual machine. \e[0m"
+  >&2 echo -e "\e[93m ===> Note we can use the debugger to debug, try: \e[0m"
+  >&2 echo -e "\e[93m      > b 0x7c00 \e[0m"
+  >&2 echo -e "\e[93m      > u/10 \e[0m"
+  >&2 echo -e "\e[93m ===> We can also use ndisasm command to disassemble the .bin/.img file. \e[0m"
   reset_x
   bochs -q -f bochsrc.txt
 }
